@@ -79,6 +79,38 @@ frappe.ui.form.ControlTableMultiSelect = class ControlTableMultiSelect extends (
 			}
 		});
 	}
+	refresh() {
+		// Clear cache when document changes to allow selection of same items in different documents
+		if (this.frm && this.frm.docname) {
+			if (!this._current_docname) {
+				this._current_docname = this.frm.docname;
+			}
+			
+			if (this._current_docname !== this.frm.docname) {
+				this._clear_cache();
+				this._current_docname = this.frm.docname;
+			}
+		}
+		if (super.refresh) {
+			return super.refresh();
+		}
+	}
+	_clear_cache() {
+		// Clear search cache
+		if (this.$input && this.$input.cache) {
+			this.$input.cache = {};
+		}
+		
+		// Clear selected items list for proper filtering between documents
+		if (this._rows_list) {
+			this._rows_list = [];
+		}
+		
+		// Clear awesomplete cache if exists
+		if (this.awesomplete && this.awesomplete._list) {
+			this.awesomplete._list = [];
+		}
+	}
 	_get_rows() {
 		return this.get_model_value() || this.rows;
 	}
@@ -87,6 +119,11 @@ frappe.ui.form.ControlTableMultiSelect = class ControlTableMultiSelect extends (
 
 		const link_fieldname = this.get_link_field().fieldname;
 		this._rows_list = rows.map((row) => row[link_fieldname]);
+
+		// Track current document
+		if (this.frm && this.frm.docname) {
+			this._current_docname = this.frm.docname;
+		}
 
 		return rows;
 	}
