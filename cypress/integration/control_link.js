@@ -341,8 +341,8 @@ context("Control Link", () => {
 						{
 							html:
 								"<span class='text-primary custom-link-option'>" +
-								"<i class='fa fa-search' style='margin-right: 5px;'></i> " +
-								"Custom Link Option" +
+								frappe.utils.icon("search", "xs", "", "margin-right: 5px;") +
+								" Custom Link Option" +
 								"</span>",
 							label: "Custom Link Option",
 							value: "custom__link_option",
@@ -356,5 +356,41 @@ context("Control Link", () => {
 				cy.get("@input").type("custom", { delay: 100 });
 				cy.get(".custom-link-option").should("be.visible");
 			});
+	});
+
+	it("keeps list format filters when merging link filters", () => {
+		cy.dialog({
+			title: "Link",
+			fields: [
+				{
+					label: "Select ToDo",
+					fieldname: "link",
+					fieldtype: "Link",
+					options: "ToDo",
+					link_filters: '[["ToDo", "status", "=", "Closed"]]',
+					get_query: () => ({
+						filters: [
+							["ToDo", "status", "=", "Open"],
+							["ToDo", "priority", "=", "High"],
+							["Communication", "status", "=", "Open"],
+							["description", "like", "%test todo%"],
+						],
+					}),
+				},
+			],
+		}).as("dialog");
+
+		cy.wait(500);
+
+		cy.get("@dialog").then((dialog) => {
+			let filters = dialog.get_field("link").get_search_args("").filters;
+
+			expect(filters).to.deep.eq([
+				["ToDo", "priority", "=", "High"],
+				["Communication", "status", "=", "Open"],
+				["description", "like", "%test todo%"],
+				["status", "=", "Closed"],
+			]);
+		});
 	});
 });
