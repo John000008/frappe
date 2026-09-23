@@ -8,9 +8,6 @@
 		<div class="canvas-area">
 			<!-- Canvas toolbar: sample data picker, zoom, preview toggle -->
 			<div class="canvas-toolbar" v-if="!$store.needs_setup.value">
-				<div class="canvas-toolbar-left">
-					<span class="canvas-toolbar-eyebrow">{{ __("Data") }}</span>
-				</div>
 				<div class="canvas-toolbar-center">
 					<DeskControl
 						v-if="doc_picker_df"
@@ -46,39 +43,21 @@
 						@click="$store.redo()"
 						v-html="frappe.utils.icon('redo-2', 'sm')"
 					></button>
-					<div ref="zoom_ref" class="canvas-zoom-control select-group-btn">
-						<button
-							type="button"
-							class="es-button canvas-zoom-trigger"
-							data-variant="subtle"
-							data-size="sm"
-							:title="__('Zoom')"
-							:aria-expanded="zoom_open"
-							@click="zoom_open = !zoom_open"
-						>
-							<span class="es-button__label">{{ canvas_zoom }}%</span>
-							<span v-html="frappe.utils.icon('chevron-down', 'xs')"></span>
-						</button>
-						<ul
-							v-if="zoom_open"
-							class="dropdown-menu dropdown-menu-right show canvas-zoom-menu"
-						>
-							<li v-for="z in ZOOM_LEVELS" :key="z">
-								<a class="dropdown-item" href="#" @click.prevent="set_zoom(z)">
-									<span>{{ z }}%</span>
-									<span
-										class="tick-icon"
-										:class="{ selected: z === canvas_zoom }"
-										v-html="frappe.utils.icon('check', 'xs')"
-									></span>
-								</a>
-							</li>
-						</ul>
-					</div>
+					<button
+						ref="zoom_ref"
+						type="button"
+						class="es-button canvas-zoom-trigger"
+						data-variant="subtle"
+						data-size="sm"
+						:title="__('Zoom')"
+					>
+						<span class="es-button__label">{{ canvas_zoom }}%</span>
+						<span v-html="frappe.utils.icon('chevron-down', 'xs')"></span>
+					</button>
 				</div>
 			</div>
 			<div v-if="$store.versions.viewing.value" class="pfb-viewing-banner">
-				<span v-html="frappe.utils.icon('history', 'sm')"></span>
+				<span v-html="frappe.utils.icon('rotate-ccw-clock', 'sm')"></span>
 				<span>
 					{{
 						__("Viewing {0} ({1}). Editing is off.", [
@@ -116,7 +95,6 @@
 		</div>
 		<FieldInspector v-if="!$store.needs_setup.value" />
 		<Preview v-if="show_preview" @close="show_preview = false" />
-		<ContextMenu />
 		<Teleport to="body">
 			<div
 				v-if="marquee"
@@ -138,7 +116,6 @@ import PrintFormatSetup from "./components/editor/PrintFormatSetup.vue";
 import Preview from "./components/Preview.vue";
 import PrintFormatControls from "./components/PrintFormatControls.vue";
 import FieldInspector from "./components/inspector/FieldInspector.vue";
-import ContextMenu from "./components/editor/ContextMenu.vue";
 import DeskControl from "./components/DeskControl.vue";
 import { getStore } from "./stores";
 import { field_uid } from "./utils";
@@ -153,8 +130,25 @@ const ZOOM_LEVELS = [50, 60, 70, 80, 90, 100, 125, 150];
 let show_preview = ref(false);
 let no_records = ref(false);
 let canvas_zoom = ref(nearest_zoom(parseInt(localStorage.getItem(ZOOM_KEY)) || 100));
-let zoom_open = ref(false);
 let zoom_ref = ref(null);
+let zoom_dropdown = null;
+
+watch(zoom_ref, (el) => {
+	zoom_dropdown?.destroy();
+	zoom_dropdown = null;
+	if (!el) return;
+	frappe.ui.dropdown({
+		trigger: el,
+		align: "end",
+		options: () =>
+			ZOOM_LEVELS.map((z) => ({
+				label: `${z}%`,
+				selected: z === canvas_zoom.value,
+				onclick: () => set_zoom(z),
+			})),
+	});
+	zoom_dropdown = $(el).data("es-dropdown");
+});
 
 const $store = getStore(props.print_format_name);
 
@@ -249,7 +243,7 @@ const MARQUEE_THRESHOLD = 4;
 // controls that should start their own interaction, never a marquee
 const MARQUEE_IGNORE =
 	".field--preview, .field--chip, button, input, textarea, select, a, [contenteditable]," +
-	" .section-toolbar, .drag-handle, .col-width-handle, .field-preview-actions," +
+	" .section-toolbar, .drag-handle, .col-width-handle," +
 	" .section-preview-actions, .empty-drop-zone, .canvas-toolbar";
 
 function on_canvas_pointerdown(e) {
@@ -475,7 +469,6 @@ function nearest_zoom(value) {
 
 function set_zoom(value) {
 	canvas_zoom.value = value;
-	zoom_open.value = false;
 	localStorage.setItem(ZOOM_KEY, value);
 }
 
@@ -491,12 +484,6 @@ function zoom_out() {
 
 function reset_zoom() {
 	set_zoom(100);
-}
-
-function close_zoom_on_outside(e) {
-	if (zoom_open.value && zoom_ref.value && !zoom_ref.value.contains(e.target)) {
-		zoom_open.value = false;
-	}
 }
 
 const is_printable_docstatus = (docstatus) =>
@@ -515,6 +502,7 @@ const doc_picker_df = computed(() => {
 		fieldtype: "Link",
 		options: meta.name,
 		placeholder: __("Pick a {0} to preview...", [__(meta.name)]),
+		with_link_btn: true,
 		get_query: () => ({ filters: printable_filters.value }),
 	};
 });
@@ -554,7 +542,6 @@ function warn_before_unload(e) {
 
 onMounted(() => {
 	document.addEventListener("keydown", handle_keydown);
-	document.addEventListener("pointerdown", close_zoom_on_outside);
 	window.addEventListener("beforeunload", warn_before_unload);
 
 	$store.fetch().then(() => {
@@ -571,7 +558,7 @@ onMounted(() => {
 
 onUnmounted(() => {
 	document.removeEventListener("keydown", handle_keydown);
-	document.removeEventListener("pointerdown", close_zoom_on_outside);
+	zoom_dropdown?.destroy();
 	window.removeEventListener("beforeunload", warn_before_unload);
 	window.removeEventListener("pointermove", on_canvas_pointermove);
 	window.removeEventListener("pointerup", on_canvas_pointerup);
@@ -582,20 +569,18 @@ defineExpose({ toggle_preview, toggle_history, open_print_settings, show_preview
 
 <style scoped>
 .builder-root {
-	/* navbar + page head height */
-	--pfb-chrome-offset: 95px;
 	/* single source of truth for every selection/hover ring on the canvas —
 	   change these two and fields, sections, and layer-hover all update */
 	--pfb-accent: var(--blue-400);
 	--pfb-ring: 2px solid var(--pfb-accent);
 	display: flex;
 	width: 100%;
+	height: 100%;
 }
 
 /* In bulk mode the per-item action toolbars (remove) are
    just noise on top of every highlighted block — the bulk panel drives actions
    instead. Hide them everywhere at once from the one multi-select flag. */
-.builder-root.pfb-multi-select :deep(.field-preview-actions),
 .builder-root.pfb-multi-select :deep(.field-actions),
 .builder-root.pfb-multi-select :deep(.section-preview-actions),
 .builder-root.pfb-multi-select :deep(.section-toolbar-right) {
@@ -607,7 +592,7 @@ defineExpose({ toggle_preview, toggle_history, open_print_settings, show_preview
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
-	height: calc(100vh - var(--pfb-chrome-offset));
+	height: 100%;
 }
 
 /* ── Canvas toolbar ──────────────────────────────────────── */
@@ -616,28 +601,16 @@ defineExpose({ toggle_preview, toggle_history, open_print_settings, show_preview
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 0 16px;
-	height: 40px;
+	padding: 0 8px;
+	height: 44px;
 	border-bottom: 1px solid var(--border-color);
 	background: var(--fg-color);
-}
-
-.canvas-toolbar-left {
-	flex-shrink: 0;
-}
-
-.canvas-toolbar-eyebrow {
-	font-size: 9px;
-	font-weight: 700;
-	letter-spacing: 0.1em;
-	color: var(--text-muted);
-	white-space: nowrap;
 }
 
 .canvas-toolbar-center {
 	flex: 1;
 	min-width: 0;
-	max-width: 320px;
+	max-width: 250px;
 }
 
 .canvas-doc-picker :deep(.form-control) {
@@ -661,28 +634,7 @@ defineExpose({ toggle_preview, toggle_history, open_print_settings, show_preview
 	gap: 6px;
 }
 
-/* ── Zoom control ────────────────────────────────────────── */
-.canvas-zoom-control {
-	position: relative;
-}
-
 .canvas-zoom-trigger {
-	font-variant-numeric: tabular-nums;
-}
-
-.canvas-zoom-menu {
-	position: absolute;
-	top: calc(100% + 4px);
-	right: 0;
-	left: auto;
-	min-width: 96px;
-}
-
-.canvas-zoom-menu .dropdown-item {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
 	font-variant-numeric: tabular-nums;
 }
 

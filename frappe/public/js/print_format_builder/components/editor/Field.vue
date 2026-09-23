@@ -1,5 +1,6 @@
 <template>
 	<div
+		ref="root"
 		:class="[
 			preview_doc ? preview_root.classes : 'field field--chip',
 			{
@@ -18,7 +19,6 @@
 		:aria-label="df.label || df.fieldname"
 		tabindex="0"
 		@click.stop="select_field($event)"
-		@contextmenu="on_context_menu"
 		@mouseenter="store.hovered_field.value = df"
 		@mouseleave="store.hovered_field.value = null"
 		@keydown.enter.prevent="kbd_select($event)"
@@ -27,22 +27,7 @@
 		<!-- ── Preview mode: show actual doc values ─────────── -->
 		<template v-if="preview_doc">
 			<FieldPreview :df="df" />
-			<div class="field-preview-actions">
-				<div
-					class="drag-handle field-drag-handle"
-					v-html="frappe.utils.icon('grip', 'xs')"
-				></div>
-				<button
-					class="es-button"
-					data-size="xs"
-					data-variant="ghost"
-					data-theme="red"
-					data-icon-button="true"
-					:title="__('Remove field')"
-					@click.stop="store.remove_field(df)"
-					v-html="frappe.utils.icon('x', 'xs')"
-				></button>
-			</div>
+			<SectionRadiusHandle v-if="show_radius_handle" :target="df" prop="table_radius" />
 		</template>
 
 		<FieldChip v-else ref="chip" :df="df" :field_orientation="field_orientation" />
@@ -50,11 +35,11 @@
 </template>
 
 <script setup>
-import { computed, inject, ref } from "vue";
+import { computed, inject, onMounted, onUnmounted, ref } from "vue";
 import FieldPreview from "./FieldPreview.vue";
 import FieldChip from "./FieldChip.vue";
+import SectionRadiusHandle from "./SectionRadiusHandle.vue";
 import { field_uid } from "../../utils";
-import { useContextMenu } from "../../composables/useContextMenu";
 import { useFieldRoot } from "./useFieldRoot";
 
 const props = defineProps(["df", "field_orientation"]);
@@ -66,6 +51,14 @@ const is_selected = computed(
 	() => store.selected_field.value === props.df || store.selected_fields.value.includes(props.df)
 );
 const is_field_visible = computed(() => store.is_visible(props.df.visible_if));
+// a table draws its own frame, so it takes the same corner handle a section has
+const show_radius_handle = computed(
+	() =>
+		!!preview_doc.value &&
+		props.df.fieldtype === "Table" &&
+		is_selected.value &&
+		store.selected_fields.value.length <= 1
+);
 const { preview_root, preview_data_attr } = useFieldRoot(props, preview_doc);
 
 function select_field(e) {
@@ -85,35 +78,52 @@ function kbd_select(e) {
 	store.select_field(props.df, !!(e.metaKey || e.ctrlKey));
 }
 
-const { open: open_context_menu } = useContextMenu();
-function on_context_menu(e) {
-	store.select_field(props.df);
-	open_context_menu(e, [
-		{ label: __("Copy"), icon: "copy", action: () => store.copy_field(props.df) },
-		{
-			label: __("Duplicate"),
-			icon: "copy-plus",
-			action: () => store.duplicate_field(props.df),
+const root = ref(null);
+let context_menu = null;
+// the section under this field binds its own menu, and the event bubbles there
+const menu_options = [
+	{ label: __("Copy"), icon: "copy", onclick: () => store.copy_field(props.df) },
+	{
+		label: __("Duplicate"),
+		icon: "copy-plus",
+		onclick: () => store.duplicate_field(props.df),
+	},
+	{
+		label: __("Save as snippet"),
+		icon: "bookmark-plus",
+		onclick: () => store.prompt_snippet(props.df, "Field"),
+	},
+	{
+		label: __("Paste"),
+		icon: "clipboard-paste",
+		condition: () => !!store.clipboard.value,
+		onclick: () => store.paste_clipboard(),
+	},
+	{
+		group: "",
+		hide_label: true,
+		options: [
+			{
+				label: __("Delete"),
+				icon: "trash",
+				theme: "red",
+				onclick: () => store.remove_field(props.df),
+			},
+		],
+	},
+];
+
+onMounted(() => {
+	context_menu = new frappe.ui.ContextMenu({
+		target: root.value,
+		options: menu_options,
+		on_open: (e) => {
+			e.stopPropagation();
+			store.select_field(props.df);
 		},
-		{
-			label: __("Save as snippet"),
-			icon: "bookmark-plus",
-			action: () => store.prompt_snippet(props.df, "Field"),
-		},
-		store.clipboard.value && {
-			label: __("Paste"),
-			icon: "clipboard-paste",
-			action: () => store.paste_clipboard(),
-		},
-		{ divider: true },
-		{
-			label: __("Delete"),
-			icon: "trash",
-			danger: true,
-			action: () => store.remove_field(props.df),
-		},
-	]);
-}
+	});
+});
+onUnmounted(() => context_menu?.destroy());
 </script>
 
 <style scoped>
@@ -170,38 +180,6 @@ function on_context_menu(e) {
 	border: var(--pfb-ring);
 	border-radius: inherit;
 	pointer-events: none;
-}
-
-.field-preview-actions {
-	display: none;
-	position: absolute;
-	top: 2px;
-	right: 2px;
-	z-index: 2;
-	gap: 2px;
-	background: var(--fg-color);
-	border: 1px solid var(--border-color);
-	border-radius: var(--radius);
-	padding: 1px 2px;
-	align-items: center;
-	box-shadow: var(--shadow-xs);
-}
-
-.field--preview:hover .field-preview-actions,
-.field--preview.field--selected .field-preview-actions {
-	display: flex;
-}
-
-.field-preview-actions .field-drag-handle {
-	cursor: grab;
-	color: var(--gray-400);
-	display: flex;
-	align-items: center;
-	padding: 2px;
-}
-
-.field-preview-actions .field-drag-handle:hover {
-	color: var(--gray-600);
 }
 
 :deep(.typst-block-source) {
